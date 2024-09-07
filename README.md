@@ -41,6 +41,7 @@ $ ros2 launch parcs_tts parcs_tts.launch.py
 $ ros2 launch parcs_stt parcs_stt.launch.py
 ```
 Text parameters are lower case unless expressed otherwise. 
+
 ---
 
 To run the nodes regularly, use the following:
