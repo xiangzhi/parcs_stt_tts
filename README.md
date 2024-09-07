@@ -1,5 +1,6 @@
 # PARCS STT and TTS Nodes
 - Created by Percy Masetti Zannini and Emily Taylor
+
 These ROS2 packages handle speech-to-text (STT) and text-to-speech (TTS) in ROS2 nodes. 
 
 The STT node adjusts for background noise and publishes the text to the `/parcs_stt/chatbot` ROS2 topic. It is subscribed to the `/parcs_tts/chatbot_ack` ROS2 topic for acknowledgement, which runs the node again, taking in another round of input to be produced. 
@@ -9,6 +10,7 @@ The TTS node subcribes to the `/parcs_stt/chatbot` ROS2 topic and produces audio
 ---
 
 As of the latest update, the following interpreters are supported.
+
 parcs_stt
 - OpenAI
 
@@ -39,8 +41,9 @@ $ ros2 launch parcs_tts parcs_tts.launch.py
 $ ros2 launch parcs_stt parcs_stt.launch.py
 ```
 Text parameters are lower case unless expressed otherwise. 
+---
 
-To run the nodes, use the following:
+To run the nodes regularly, use the following:
 ```shell
 $ ros2 run parcs_tts parcs_tts
 $ ros2 run parcs_stt parcs_stt 
