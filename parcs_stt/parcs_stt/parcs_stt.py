@@ -64,7 +64,7 @@ class ParcsSTT(Node):
         samples = np.array(audio_segment.get_array_of_samples())
         rms_value = np.sqrt(np.mean(np.square(samples)))
 
-        # convertnig rms to dbfs
+        # converting rms to dbfs
         rms_dBFS = 20 * np.log10(rms_value / 32768.0)
         self.get_logger().info(f"RMS Value: {rms_value}")
         self.get_logger().info(f"RMS to dBFS Value: {rms_dBFS}")
