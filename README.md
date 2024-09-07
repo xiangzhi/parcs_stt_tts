@@ -9,7 +9,7 @@ The TTS node subcribes to the `/parcs_stt/chatbot` ROS2 topic and produces audio
 
 ---
 
-As of the latest update, the following interpreters are supported.
+As of the latest update, the following interpreters are supported:
 
 parcs_stt
 - OpenAI
