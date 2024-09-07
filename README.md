@@ -5,7 +5,7 @@ These ROS2 packages handle speech-to-text (STT) and text-to-speech (TTS) in ROS2
 
 The STT node adjusts for background noise and publishes the text to the `/parcs_stt/chatbot` ROS2 topic. It is subscribed to the `/parcs_tts/chatbot_ack` ROS2 topic for acknowledgement, which runs the node again, taking in another round of input to be produced. 
 
-The TTS node subcribes to the `/parcs_stt/chatbot` ROS2 topic and produces audio to repeat the text it was given. When it is finished repeating the text, it publishes to the `/parcs_tts/chatbot_ack` ROS2 topic to acknowledge that it has finished playing the audio. 
+The TTS node subcribes to the `/parcs_stt/chatbot` ROS2 topic and produces audio to repeat the text it was given. When it is finished repeating the text, it publishes to the `/parcs_tts/chatbot_ack` ROS2 topic to acknowledge that it has finished playing the audio. If desired, it can handle response generation with OpenAI from the text it was given. 
 
 ---
 
