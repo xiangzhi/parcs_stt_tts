@@ -18,34 +18,54 @@ class ParcsTTS(Node):
         self._subscription = self.create_subscription(String, "/parcs_stt/chatbot", self.textCallback, 10)
         self._subscription
 
-        self.speaker = "alloy"
-        self.personality = "you are helpful robot"
+        # parameters
+        # speaker to be made later
+        personality_param = 'you like humans most of the time and are a helpful robot'
+        tts_interpreter_param = 'festival' # 'openai'
+
+        self.declare_parameter("personality", personality_param)
+        self.declare_parameter("interpreter", tts_interpreter_param)
+
+        self.personality_param = self.get_parameter("personality").get_parameter_value().string_value
+        
+        self.tts_interpreter_param = self.get_parameter("interpreter").get_parameter_value().string_value
+        
+
+        if self.tts_interpreter_param == 'openai':
+            openai.api_key= os.getenv("OPENAI_API_KEY") #get api key as environmental variable
+            self.speaker = "alloy"
 
     def textCallback(self, msg):
-        response = self.generate_response(msg.data)
+        # response = self.generate_response(msg.data)
 
-        self.text_to_speech(response)
+        if self.tts_interpreter_param == 'openai':
+            self.text_to_speech_openai(msg.data)
+        elif self.tts_interpreter_param == 'festival':
+            self.text_to_speech_festival(msg.data)
+        else:
+            self.get_logger().error("Invalid TTS interpreter. Choose a valid one >:( (i.e. openai, festival)")
 
         done_msg = String()
         done_msg.data = 'Finished TTS.'
 
         self._publisher.publish(done_msg)
     
-    def generate_response(self, query):
+    '''uncomment if you want to generate responses with openai'''
+    # def generate_response(self, query):
         
-        response = openai.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": self.personality},
-                {"role": "user", "content": query},
-            ],
-        )
-        response_data = response.choices[0].message.content
-        print("AI Response: ", response_data)
+    #     response = openai.chat.completions.create(
+    #         model="gpt-3.5-turbo",
+    #         messages=[
+    #             {"role": "system", "content": self.personality},
+    #             {"role": "user", "content": query},
+    #         ],
+    #     )
+    #     response_data = response.choices[0].message.content
+    #     print("AI Response: ", response_data)
 
-        return response_data.replace("'", "")
+    #     return response_data.replace("'", "")
 
-    def text_to_speech(self, text):
+    def text_to_speech_openai(self, text):
 
         player_stream = pyaudio.PyAudio().open(format=pyaudio.paInt16, channels=1, rate=24000, output=True) 
 
@@ -62,6 +82,12 @@ class ParcsTTS(Node):
                 player_stream.write(chunk) 
 
         print(f"Done in {int((time.time() - start_time) * 1000)}ms.")
+
+    def text_to_speech_festival(self, text):
+
+       os.system('echo %s | festival --tts' % text)
+
+    
 
 def main(args=None):
     rclpy.init(args=args)
