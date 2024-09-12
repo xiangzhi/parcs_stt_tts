@@ -7,15 +7,25 @@ import numpy as np
 import tempfile
 import openai
 import os 
+from rclpy.action import ActionServer
+from parcs_stt.action import Listen
 
 class ParcsSTT(Node):
 
     def __init__(self):
         super().__init__('parcs_stt')
 
-        self._publisher = self.create_publisher(String, "/parcs_stt/chatbot", 10)
-        self._subscription = self.create_subscription(String, "/parcs_tts/chatbot_ack", self.ackCallback, 10)
-        self._subscription
+        self._publisher = self.create_publisher(String, "/speech_to_text", 10)
+        # self._subscription = self.create_subscription(String, "/parcs_tts/chatbot_ack", self.ackCallback, 10)
+        # self._subscription
+
+        self._stt_action_server = ActionServer(
+            self,
+            Listen,
+            'listen',
+            self.listen_callback
+        )
+        # might add re-calibration action
 
         # parameters
         threshold_param = -2
@@ -38,9 +48,20 @@ class ParcsSTT(Node):
         self.background_noise_dbfs = self.measure_background_noise()
         self.silence_threshold = self.background_noise_dbfs + self.threshold_param 
         self.get_logger().info(f"Silence threshold: {self.silence_threshold}")
+    
+    '''listen action server callback'''
+    def listen_callback(self, goal_handle):
+        self.get_logger().info("Executing listening goal...")
+        
+        self._goal_handle = goal_handle
+
+        goal_handle.succeed()
+        result = Listen.Result()
+        result.transcript = self.record_and_produce_text()
+        return result
 
     def ackCallback(self, msg):
-        self.main()
+        self.produce_text()
 
     def measure_background_noise(self, duration=3, samplerate=44100):
         self.get_logger().info("Calibrating for background noise...")
@@ -112,7 +133,7 @@ class ParcsSTT(Node):
             self.get_logger().info("Recording complete.")
             return temp_audio_file.name
         
-    def speech_to_text(self, audio_file):
+    def interpret_audio(self, audio_file):
         if (self.stt_interpreter_param == 'openai'):
             with open(audio_file, "rb") as file:
                 response = openai.audio.transcriptions.create(
@@ -126,21 +147,22 @@ class ParcsSTT(Node):
         self.get_logger().info(f"Query: {response_text}")
         return response_text
     
-    def main(self):
+    def record_and_produce_text(self):
         audio_file = self.record_audio(threshold=self.silence_threshold)
 
         text = String()
-        text.data = self.speech_to_text(audio_file)
+        text.data = self.interpret_audio(audio_file)
 
         self._publisher.publish(text)
 
-        os.remove(audio_file)
+        # os.remove(audio_file)
+
+        return text
 
 def main(args=None):
     rclpy.init(args=args)
 
     node = ParcsSTT()
-    node.main()
     rclpy.spin(node)
 
     rclpy.shutdown()
