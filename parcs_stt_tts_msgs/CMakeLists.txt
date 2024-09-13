@@ -27,6 +27,8 @@ endif()
 rosidl_generate_interfaces(${PROJECT_NAME}
   "action/Listen.action"
   "action/Recalibrate.action"
+  "action/TTS.action"
+  "action/StopTTS.action"
   DEPENDENCIES builtin_interfaces
 )
 

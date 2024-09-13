@@ -27,7 +27,9 @@ class STTTester(Node):
     def send_listen_goal(self):
         goal_msg = Listen.Goal()
 
+        self.get_logger().info("Waiting for listen action server...")
         self._listen_action_client.wait_for_server()
+        self.get_logger().info("Listen action server found!")
 
         self._goal_in_progress = True
         self._send_goal_future = self._listen_action_client.send_goal_async(goal_msg, feedback_callback=self.listen_feedback_callback)
@@ -57,7 +59,9 @@ class STTTester(Node):
     def send_recalibrate_goal(self):
         goal_msg = Recalibrate.Goal()
 
+        self.get_logger().info("Waiting for recalibration action server...")
         self._recalibrate_action_client.wait_for_server()
+        self.get_logger().info("Recalibration action server found!")
 
         self._goal_in_progress = True
         self._send_goal_future = self._recalibrate_action_client.send_goal_async(goal_msg, feedback_callback=self.recalibrate_feedback_callback)

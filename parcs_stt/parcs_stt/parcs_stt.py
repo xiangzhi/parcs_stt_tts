@@ -45,7 +45,7 @@ class ParcsSTT(Node):
         self.stt_interpreter_param = self.get_parameter("interpreter").get_parameter_value().string_value
 
         self.get_logger().info(f"Threshold: {self.threshold_param}")
-        self.get_logger().info(f"Interpreter: {self.stt_interpreter_param}")
+        self.get_logger().info(f"STT Interpreter: {self.stt_interpreter_param}")
 
         if self.stt_interpreter_param == 'openai':
             openai.api_key= os.getenv("OPENAI_API_KEY") #get api key as environmental variable

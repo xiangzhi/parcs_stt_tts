@@ -1,0 +1,9 @@
+# Goal
+string tts # the string to be read out
+
+---
+
+# Result
+string msg # the message that was spoken
+
+---

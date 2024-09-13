@@ -1,0 +1,8 @@
+# Goal
+
+---
+
+# Result
+bool stopped # whether the TTS is currently stopped or not
+
+---
