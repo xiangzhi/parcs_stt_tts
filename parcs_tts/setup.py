@@ -26,6 +26,7 @@ setup(
     entry_points={
         'console_scripts': [
             'parcs_tts = parcs_tts.parcs_tts:main',
+            'parcs_tts_test = parcs_tts.parcs_tts_test:main',
             'tts_tester = parcs_tts.tts_tester:main',
         ],
     },
