@@ -8,7 +8,8 @@ import tempfile
 import openai
 import os 
 from rclpy.action import ActionServer
-from parcs_stt.action import Listen
+from parcs_stt_tts_msgs.action import Listen
+from parcs_stt_tts_msgs.action import Recalibrate
 
 class ParcsSTT(Node):
 
@@ -16,8 +17,6 @@ class ParcsSTT(Node):
         super().__init__('parcs_stt')
 
         self._publisher = self.create_publisher(String, "/speech_to_text", 10)
-        # self._subscription = self.create_subscription(String, "/parcs_tts/chatbot_ack", self.ackCallback, 10)
-        # self._subscription
 
         self._stt_action_server = ActionServer(
             self,
@@ -25,7 +24,13 @@ class ParcsSTT(Node):
             'listen',
             self.listen_callback
         )
-        # might add re-calibration action
+
+        self._recalibrate_action_server = ActionServer(
+            self,
+            Recalibrate,
+            'recalibrate',
+            self.recalibrate_callback
+        )
 
         # parameters
         threshold_param = -2
@@ -45,9 +50,7 @@ class ParcsSTT(Node):
         if self.stt_interpreter_param == 'openai':
             openai.api_key= os.getenv("OPENAI_API_KEY") #get api key as environmental variable
 
-        self.background_noise_dbfs = self.measure_background_noise()
-        self.silence_threshold = self.background_noise_dbfs + self.threshold_param 
-        self.get_logger().info(f"Silence threshold: {self.silence_threshold}")
+        self.set_background_noise()
     
     '''listen action server callback'''
     def listen_callback(self, goal_handle):
@@ -55,14 +58,36 @@ class ParcsSTT(Node):
         
         self._goal_handle = goal_handle
 
-        goal_handle.succeed()
         result = Listen.Result()
         result.transcript = self.record_and_produce_text()
+        goal_handle.succeed()
+        return result
+    
+    '''recalibration action server callback'''
+    def recalibrate_callback(self, goal_handle):
+        self.get_logger().info("Executing recalibrate goal...")
+
+        self._goal_handle = goal_handle
+
+        result = Recalibrate.Result()
+        self.set_background_noise()
+        result.dbfs = self.background_noise_dbfs
+        result.threshold = self.silence_threshold
+        goal_handle.succeed()
         return result
 
-    def ackCallback(self, msg):
-        self.produce_text()
+    '''
+    measures and sets the background noise to adjust the silence threshold
+    measurement is in dBFS (decibels relative to full scale) which describes
+    the amplitude of a signal relative to the maximum possible level in digital
+    audio systems
+    '''
+    def set_background_noise(self):
+        self.background_noise_dbfs = self.measure_background_noise()
+        self.silence_threshold = self.background_noise_dbfs + self.threshold_param 
+        self.get_logger().info(f"Silence threshold (dBFS): {self.silence_threshold}")
 
+    '''measure the background noise to adjust the silence threshold'''
     def measure_background_noise(self, duration=3, samplerate=44100):
         self.get_logger().info("Calibrating for background noise...")
         audio_chunk = sd.rec(int(duration * samplerate), samplerate=samplerate, channels=1, dtype='int16')
@@ -79,18 +104,21 @@ class ParcsSTT(Node):
         self.get_logger().info(f"Background noise dBFS value: {dBFS_value}")
         return dBFS_value
     
+    '''detects if there is a pause in audio'''
     def detect_audio_silence(self, audio_segment : AudioSegment, pause_duration, threshold):
-        min_silence_len = 1000*pause_duration
+        min_silence_len = 1000*pause_duration # pause_duration in seconds
     
         samples = np.array(audio_segment.get_array_of_samples())
         rms_value = np.sqrt(np.mean(np.square(samples)))
 
         # converting rms to dbfs
         rms_dBFS = 20 * np.log10(rms_value / 32768.0)
-        self.get_logger().info(f"RMS Value: {rms_value}")
-        self.get_logger().info(f"RMS to dBFS Value: {rms_dBFS}")
+        # uncomment to test for RMS and dBFS threshold values
+        # self.get_logger().info(f"RMS Value: {rms_value}")
+        # self.get_logger().info(f"RMS to dBFS Value: {rms_dBFS}")
         return rms_dBFS < threshold
-
+    
+    '''records the audio until silence is detected and returns the audio file'''
     def record_audio(self, threshold=-40.0, chunk_duration=2, pause_duration=2, samplerate=44100): # chunk duration was 1
         self.get_logger().info('Recording...')
         audio_chunks = []
@@ -132,7 +160,8 @@ class ParcsSTT(Node):
             combined_audio.export(temp_audio_file.name, format="wav")
             self.get_logger().info("Recording complete.")
             return temp_audio_file.name
-        
+    
+    '''interprets the given audio file into text'''
     def interpret_audio(self, audio_file):
         if (self.stt_interpreter_param == 'openai'):
             with open(audio_file, "rb") as file:
@@ -147,6 +176,7 @@ class ParcsSTT(Node):
         self.get_logger().info(f"Query: {response_text}")
         return response_text
     
+    '''handles recording, producing text as a string type, and publishing a String to the topic'''
     def record_and_produce_text(self):
         audio_file = self.record_audio(threshold=self.silence_threshold)
 
@@ -157,7 +187,7 @@ class ParcsSTT(Node):
 
         # os.remove(audio_file)
 
-        return text
+        return text.data
 
 def main(args=None):
     rclpy.init(args=args)

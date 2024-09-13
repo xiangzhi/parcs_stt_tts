@@ -3,7 +3,6 @@ from launch_ros.actions import Node
 
 def generate_launch_description():    # a launcher for the chatbot's input and output
     return LaunchDescription([
-        #say that 5 times in a row
         Node(
             package='parcs_stt',
             namespace='parcs_stt',

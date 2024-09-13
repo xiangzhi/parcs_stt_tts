@@ -1,0 +1,9 @@
+# Goal
+
+---
+
+# Result
+float32 dbfs # the decibel level of background noise
+float32 threshold # the silence threshold
+
+---
