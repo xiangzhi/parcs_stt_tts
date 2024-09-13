@@ -27,7 +27,7 @@ class ParcsTTS(Node):
         # parameters
         # speaker to be made later
         personality_param = 'you like humans most of the time and are a helpful robot'
-        tts_interpreter_param = 'festival' # 'openai'
+        tts_interpreter_param = 'festival' # 'festival' 'openai'
         gen_response_param = 'false' # must be 'true' or 'false
 
         self.declare_parameter("personality", personality_param)
@@ -62,6 +62,7 @@ class ParcsTTS(Node):
         self.stop_flag = False
         self.tts_process = None # for festival or other interpreters that would use subprocess.Popen
         self.stop_thread = None
+        self.done_with_speech = False
 
         self.get_logger().info(f"TTS interpreter: {self.tts_interpreter_param}")
 
@@ -76,14 +77,29 @@ class ParcsTTS(Node):
         self.get_logger().info(f"Received TTS goal: {tts_string}")
 
         if self.gen_response_param == 'true':
-            response = await self.generate_response(goal.tts)
+            response = await asyncio.to_thread(self.generate_response, goal.tts) # self.generate_response(goal.tts)
+            #to be fixed 
             tts_string = response
 
         tts_string.replace("'", "\\'")
         tts_string.replace('"', '\\"')
 
         result = TTS.Result()
-        result.msg = await self.produce_speech(tts_string)
+        # result.msg = self.produce_speech(tts_string)
+
+        # Create or get an event loop and run the asynchronous code
+        self.loop = asyncio.get_event_loop()
+
+        if self.loop.is_running():
+            # If the event loop is already running, use asyncio.to_thread
+            result.msg = await asyncio.to_thread(self.produce_speech, tts_string)
+        else:
+            # If there's no running event loop, create one and run produce_speech
+            # asyncio.new_event_loop()
+            # result.msg = await asyncio.to_thread(self.produce_speech, tts_string)
+            result.msg = await asyncio.run(self.produce_speech(tts_string))
+        
+        self.get_logger().info('Finished TTS.')
         goal_handle.succeed()
         return result
     
@@ -120,9 +136,9 @@ class ParcsTTS(Node):
             await self.text_to_speech_openai(msg)
         elif self.tts_interpreter_param == 'festival':
             await self.text_to_speech_festival(msg)
-            while self.tts_process.poll() is None:
-                time.sleep(1)
-                # asyncio.sleep(1)
+            # while self.tts_process.poll() is None:
+            #     time.sleep(1)
+            #     # asyncio.sleep(1)
         else:
             self.get_logger().error("Invalid TTS interpreter. Choose a valid one >:( (i.e. openai, festival)")
 
@@ -134,15 +150,13 @@ class ParcsTTS(Node):
         # reset the stop flag
         self.stop_flag = False
 
-        self.get_logger().info('Finished TTS.')
-
         return msg
     
     '''generates a response'''
     async def generate_response(self, query):
         
         if self.tts_interpreter_param == 'openai':
-            response = openai.chat.completions.create(
+            response = await openai.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
                     {"role": "system", "content": self.personality},
@@ -164,7 +178,7 @@ class ParcsTTS(Node):
 
         start_time = time.time() 
 
-        with openai.audio.speech.with_streaming_response.create( 
+        with await openai.audio.speech.with_streaming_response.create( 
             model="tts-1", 
             voice=self.speaker, 
             response_format="pcm",  # similar to WAV, but without a header chunk at the start. 
@@ -174,16 +188,22 @@ class ParcsTTS(Node):
             for chunk in response.iter_bytes(chunk_size=1024): 
                 if self.stop_flag: # handles stopping
                     self.stop_flag = False
+                    self.done_with_speech = True
                     break
                 player_stream.write(chunk) 
 
         print(f"Done in {int((time.time() - start_time) * 1000)}ms.")
+        self.done_with_speech = True
 
     '''uses festival to process the text and say it'''
     async def text_to_speech_festival(self, text):
         # os.system('echo %s | festival --tts' % text)
 
-        self.tts_process = subprocess.Popen(f"echo {text} | festival --tts", shell=True)
+        # self.tts_process = subprocess.Popen(f"echo {text} | festival --tts", shell=True)
+        self.tts_process = await asyncio.create_subprocess_shell(f"echo {text} | festival --tts")
+
+        # Wait for the process to complete without blocking the event loop
+        await self.tts_process.communicate()
     
     '''monitors the tts process and kills it if manually stopped'''
     def monitor_tts(self):
