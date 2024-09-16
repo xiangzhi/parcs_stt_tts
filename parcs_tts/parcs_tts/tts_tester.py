@@ -106,7 +106,7 @@ class STTTester(Node):
     
     def stop_serv_resp(self, future):
         try:
-            response = future.result().result
+            response = future.result()
             self.get_logger().info(f"Stop service response received. Success: {response.success}")
         except Exception as e:
             self.get_logger().error(f"Stop service call failed: {e}")

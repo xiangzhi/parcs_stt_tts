@@ -1,4 +1,5 @@
 import asyncio
+import signal
 import subprocess
 import threading
 import rclpy
@@ -34,7 +35,7 @@ class ParcsTTS(Node):
         # speaker to be made later
         personality_param = 'you like humans most of the time and are a helpful robot'
         tts_interpreter_param = 'festival' # 'festival' 'openai'
-        gen_response_param = 'false' # must be 'true' or 'false
+        gen_response_param = 'false' # must be 'true' or 'false', case sensitive
 
         self.declare_parameter("personality", personality_param)
         self.declare_parameter("interpreter", tts_interpreter_param)
@@ -196,7 +197,9 @@ class ParcsTTS(Node):
             if self.tts_goal:
                 if (self.tts_goal.status == GoalStatus.STATUS_EXECUTING):
                     if self.tts_process is not None:
-                        self.tts_process.kill()
+                        # self.tts_process.kill()
+                        # os.kill(self.tts_process.pid, signal.SIGKILL)
+                        os.killpg(os.getpgid(self.tts_process.pid), signal.SIGTERM)
                         self.get_logger().info("Killed process.")
                         self.tts_process = None
                     self.abort_resp.success = True
@@ -263,20 +266,20 @@ class ParcsTTS(Node):
         return msg
     
     '''generates a response'''
-    async def generate_response(self, query):
+    def generate_response(self, query):
         
         if self.tts_interpreter_param == 'openai':
-            response = await openai.chat.completions.create(
+            response = openai.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": self.personality},
+                    {"role": "system", "content": self.personality_param},
                     {"role": "user", "content": query},
                 ],
             )
             response_data = response.choices[0].message.content
             print("AI Response: ", response_data)
         else:
-            self.logger("Could not generate a response; must specify an interpreter with that capability.")
+            self.get_logger().info("Could not generate a response; must specify an interpreter with that capability.")
             return
 
         return response_data
@@ -309,15 +312,22 @@ class ParcsTTS(Node):
     def text_to_speech_festival(self, text):
         # os.system('echo %s | festival --tts' % text)
 
-        self.tts_process = subprocess.run(f"echo {text} | festival --tts", shell=True) # was Popen
+        self.tts_process = subprocess.Popen(f"echo {text} | festival --tts", shell=True, preexec_fn=os.setpgrp) 
         # self.tts_process = await asyncio.create_subprocess_shell(f"echo {text} | festival --tts")
 
         # Wait for the process to complete without blocking the event loop
-        # await self.tts_process.communicate()
+        monitor_thread = threading.Thread(target=self.monitor_process)
+        monitor_thread.start()
 
-        # while self.tts_process.poll() is None:
-        #     time.sleep(1) 
-        # self.tts_process.wait()
+        monitor_thread.join()
+    
+    '''monitors the process, sleeping while TTS is not stopped'''
+    def monitor_process(self):
+        try:
+            while not self.stop_flag:
+                time.sleep(0.1)
+        except Exception as e:
+            self.get_logger().info(f"Exception while waiting for process: {e}")
     
     '''monitors the tts process and kills it if manually stopped'''
     def monitor_tts(self):
