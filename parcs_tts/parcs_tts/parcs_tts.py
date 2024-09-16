@@ -26,12 +26,11 @@ class ParcsTTS(Node):
 
     def __init__(self):
         super().__init__('parcs_tts')
-        self._publisher = self.create_publisher(String, "/text_to_speech", 10)
 
         # parameters
-        # speaker to be made later
+        # speaker parameters to be made later
         personality_param = 'you like humans most of the time and are a helpful robot'
-        tts_interpreter_param = 'festival' # 'festival' 'openai'
+        tts_interpreter_param = 'festival' # 'festival' or 'openai', case sensitive
         gen_response_param = 'false' # must be 'true' or 'false', case sensitive
 
         self.declare_parameter("personality", personality_param)
@@ -39,16 +38,15 @@ class ParcsTTS(Node):
         self.declare_parameter("gen_response", gen_response_param)
 
         self.personality_param = self.get_parameter("personality").get_parameter_value().string_value
-        
         self.tts_interpreter_param = self.get_parameter("interpreter").get_parameter_value().string_value
-
         self.gen_response_param = self.get_parameter("gen_response").get_parameter_value().string_value
 
         if self.tts_interpreter_param == 'openai':
             openai.api_key= os.getenv("OPENAI_API_KEY") #get api key as environmental variable
             self.speaker = "alloy"
         
-        self.tts_callback_group = MutuallyExclusiveCallbackGroup()
+        # action and service server initializing
+        self.tts_callback_group = MutuallyExclusiveCallbackGroup() # handles one callback at a time
         self.stop_callback_group = MutuallyExclusiveCallbackGroup()
 
         self._tts_action_server = ActionServer(
@@ -63,25 +61,25 @@ class ParcsTTS(Node):
                                               'stop', 
                                               self.abort_goal_req,
                                               callback_group=self.stop_callback_group)
-
+        
+        # variables
         self.stop_flag = False
         self.tts_process = None # for festival or other interpreters that would use subprocess.Popen
-        self.stop_thread = None
-        self.done_with_speech = False
         self.tts_goal = None
-
-        self._executor = ThreadPoolExecutor(1)
-        self.loop = asyncio.get_event_loop()
         self.prod_speech_result = None
 
         self.get_logger().info(f"TTS interpreter: {self.tts_interpreter_param}")
+        self.get_logger().info(f"TTS node ready.\n--------------------------------------------")
 
     '''tts action server callback'''
     def tts_callback(self, goal_handle):
         self.get_logger().info("Executing TTS goal...")
+
+        # variable reset before each round of TTS
         self.prod_speech_result = None
         self.stop_flag = False
-      
+
+        # goal handle processing
         self._goal_handle = goal_handle
         self.tts_goal = goal_handle 
 
@@ -90,39 +88,45 @@ class ParcsTTS(Node):
 
         self.get_logger().info(f"Received TTS goal: {tts_string}")
 
+        # generates responses if desired
         if self.gen_response_param == 'true':
             response = self.generate_response(goal.tts)
             tts_string = response
 
+        # escapes apostrophes and quotations for processing
         tts_string.replace("'", "\\'")
         tts_string.replace('"', '\\"')
 
+        # establishes the result
         result = TTS.Result()
         result.msg = '' # empty as placeholder value
+        result.stopped = False # false until manually stopped
 
         try:
+            # thread that handles all text to speech 
             tts_thread = threading.Thread(target=self.produce_speech, args=(tts_string,))
+            # thread that handles waiting for manual stop signal or automatic stopping
             wait_for_stop_thread = threading.Thread(target=self.wait_for_stop_signal)
             tts_thread.start()
             wait_for_stop_thread.start()
-            self.get_logger().info("started both threads")
 
+            # waiting for a manual stop or the TTS to finish
             wait_for_stop_thread.join()
-            self.get_logger().info("done with wait for stop signal thread")
 
             goal_status = goal_handle.status
 
-            if (goal_status == GoalStatus.STATUS_EXECUTING):
+            if (goal_status in [GoalStatus.STATUS_EXECUTING, GoalStatus.STATUS_SUCCEEDED]):
+                # finished TTS
                 tts_thread.join()
-                self.get_logger().info("done with tts thread")
                 result.msg = self.prod_speech_result
                 self.get_logger().info('Finished TTS.') 
                 goal_handle.succeed()
             elif (goal_status == GoalStatus.STATUS_ABORTED):
+                # manually stopped TTS
                 stop_event = threading.Event()
                 stop_event.set()
                 tts_thread.join()
-                self.get_logger().info("done with tts thread after aborting")
+                result.stopped = True # manually stopped
                 self.get_logger().info("TTS aborted.")
             else:
                 pass 
@@ -132,33 +136,38 @@ class ParcsTTS(Node):
             if goal_status not in [GoalStatus.STATUS_SUCCEEDED, GoalStatus.STATUS_ABORTED]:
                 goal_handle.abort()
         return result
-
+    
+    '''waits until the stop flag is set to true'''
     def wait_for_stop_signal(self):
-        self.get_logger().info("waiting for stop signal")
         while not self.stop_flag:
                 time.sleep(1)
 
+    '''handles the service call'''
     def abort_goal_req(self, request, response):
         self.get_logger().info("Aborting TTS goal...")
         self.abort_resp = Stop.Response()
 
+        # handles killing/aborting asynchronously 
         stop_thread = threading.Thread(target=self.handle_abort)
         stop_thread.start()
-        self.get_logger().info("Started aborting...")
         stop_thread.join()
 
         return self.abort_resp 
     
+    '''aborts/kills all text to speech processses'''
     def handle_abort(self):
-        if not self.stop_flag:
+        if not self.stop_flag: 
             if self.tts_goal:
                 if (self.tts_goal.status == GoalStatus.STATUS_EXECUTING):
-                    if self.tts_process is not None:
+                    # kills tts if handled in a subprocess
+                    if self.tts_process is not None: 
                         os.killpg(os.getpgid(self.tts_process.pid), signal.SIGTERM)
                         self.get_logger().info("Killed process.")
                         self.tts_process = None
-                    self.abort_resp.success = True
+
+                    self.abort_resp.success = True 
                     self.stop_flag = True
+
                     self.get_logger().info("TTS stopped by service.")
                     if self.tts_goal.status not in [GoalStatus.STATUS_SUCCEEDED, GoalStatus.STATUS_ABORTED]:
                         self.tts_goal.abort()
@@ -172,6 +181,7 @@ class ParcsTTS(Node):
             self.abort_resp.success = False
             self.get_logger().info("Already attempted to stop. Ignoring request.")
     
+
     '''produces speech given the message and interpreter, plays it from speakers, and publishes the produced message as a String to the topic'''
     def produce_speech(self, msg):
         if self.tts_interpreter_param == 'openai':
@@ -186,7 +196,7 @@ class ParcsTTS(Node):
 
         self.prod_speech_result = msg
 
-        # reset the stop flag
+        # finished speaking; stop set to true
         self.stop_flag = True
 
         return msg
@@ -226,30 +236,41 @@ class ParcsTTS(Node):
             print(f"Time to first byte: {int((time.time() - start_time) * 1000)}ms") 
             for chunk in response.iter_bytes(chunk_size=1024): 
                 if self.stop_flag: # handles stopping
-                    self.stop_flag = False
-                    self.done_with_speech = True
                     break
                 player_stream.write(chunk) 
 
         print(f"Done in {int((time.time() - start_time) * 1000)}ms.")
-        self.done_with_speech = True
 
     '''uses festival to process the text and say it'''
     def text_to_speech_festival(self, text):
 
+        # subprocess to begin tts
         self.tts_process = subprocess.Popen(f"echo {text} | festival --tts", shell=True, preexec_fn=os.setpgrp) 
 
         # Wait for the process to complete without blocking the event loop
         monitor_thread = threading.Thread(target=self.monitor_process)
         monitor_thread.start()
         monitor_thread.join()
-
+    
+    '''monitors the process, sleeping while TTS is not stopped'''
+    def monitor_process(self):
+        try:
+            if self.tts_process:
+                while not self.stop_flag and self.tts_process.poll() is None:
+                    time.sleep(0.1)
+            else:
+                while not self.stop_flag:
+                    time.sleep(0.1)
+        except Exception as e:
+            self.get_logger().info(f"Exception while waiting for process: {e}")
+    
 def main(args=None):
     try: 
         rclpy.init(args=args)
 
         tts_node = ParcsTTS()
 
+        # multithreaded because want to process to service callbacks simultaneously with action callbacks
         executor = MultiThreadedExecutor(num_threads=2)
         executor.add_node(tts_node)
 

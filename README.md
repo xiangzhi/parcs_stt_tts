@@ -3,9 +3,9 @@
 
 These ROS2 packages handle speech-to-text (STT) and text-to-speech (TTS) in ROS2 nodes. 
 
-The STT node adjusts for background noise and publishes the text to the `/parcs_stt/chatbot` ROS2 topic. It is subscribed to the `/parcs_tts/chatbot_ack` ROS2 topic for acknowledgement, which runs the node again, taking in another round of input to be produced. 
+The STT node adjusts for background noise and can publish text to the `/speech_to_text` ROS2 topic. It has the actions Listen and Recalibrate. Listen will take in one round of speech, stopping when it has detected silence. Recalibrate will readjust for background noise when requested. 
 
-The TTS node subcribes to the `/parcs_stt/chatbot` ROS2 topic and produces audio to repeat the text it was given. When it is finished repeating the text, it publishes to the `/parcs_tts/chatbot_ack` ROS2 topic to acknowledge that it has finished playing the audio. If desired, it can handle response generation with OpenAI from the text it was given. 
+The TTS node has the action TTS and the service Stop. When requested, the TTS action will take in the message sent with the goal and say it through your default speakers. At any point while TTS is playing, the Stop service can be requested to immediately terminate processes and stop speech mid-sentence. If desired, it can handle response generation with OpenAI from the text it was given; this is a parameter. 
 
 ---
 
@@ -35,19 +35,32 @@ $ colcon build
 ```
 
 ## Running 
-To use customized parameters, such as another interpreter instead of OpenAI, use a launch file:
+To use customized parameters, such as another interpreter instead of OpenAI, use a launch file.
+
+Speech to text demo launch:
+```shell
+$ ros2 launch parcs_stt stt_tester.launch.py
+```
+
+Text to speech demo launch:
 ```shell
 $ ros2 launch parcs_tts parcs_tts.launch.py
-$ ros2 launch parcs_stt parcs_stt.launch.py
 ```
+
 Text parameters are lower case unless expressed otherwise. 
 
 ---
 
 To run the nodes regularly, use the following:
+
+Speech to text:
+```shell
+$ ros2 run parcs_stt parcs_stt 
+```
+
+Text to speech:
 ```shell
 $ ros2 run parcs_tts parcs_tts
-$ ros2 run parcs_stt parcs_stt 
 ```
 
 ## Setting an API Key

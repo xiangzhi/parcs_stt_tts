@@ -14,10 +14,8 @@ class STTTester(Node):
 
     def __init__(self):
         super().__init__('tts_tester')
-        self.get_logger().info('Started testing node. Please type "s" to stop at any time.')
 
         self._tts_action_client = ActionClient(self, TTS, 'tts')
-        self._stop_action_client = ActionClient(self, StopTTS, 'stop_tts')
         self._goal_in_progress = False
 
         self._stop_srv_client = self.create_client(Stop, 'stop')
@@ -31,6 +29,8 @@ class STTTester(Node):
 
         self._keyboard_listener = keyboard.Listener(on_press=self.key_input)
         self._keyboard_listener.start()
+
+        self.get_logger().info('TTS testing node ready. Type anything then press "Enter" to activate TTS. Type "s" to stop TTS at any time.\n--------------------------------------------')
     
     '''TTS'''
     def send_tts_goal(self, msg):
