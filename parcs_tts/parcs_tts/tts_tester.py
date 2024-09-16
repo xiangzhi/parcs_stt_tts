@@ -2,7 +2,6 @@ import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from parcs_stt_tts_msgs.action import TTS
-from parcs_stt_tts_msgs.action import StopTTS
 from parcs_stt_tts_msgs.srv import Stop
 from pynput import keyboard
 
@@ -67,37 +66,6 @@ class STTTester(Node):
         self.get_logger().info(f'TTS feedback received: {feedback_msg}')
 
     '''STOP'''
-    def send_stop_goal(self):
-        goal_msg = StopTTS.Goal()
-
-        self.get_logger().info("Waiting for stop action server...")
-        self._stop_action_client.wait_for_server()
-        self.get_logger().info("Stop action server found!")
-
-        self._goal_in_progress = True
-        self._send_goal_future = self._stop_action_client.send_goal_async(goal_msg, feedback_callback=self.stop_feedback_callback)
-        self._send_goal_future.add_done_callback(self.stop_goal_response_callback)
-
-    def stop_goal_response_callback(self, future):
-        goal_handle = future.result()
-
-        if not goal_handle.accepted:
-            self.get_logger().info('Stop goal was rejected.')
-            self._goal_in_progress = False
-            return
-        
-        self.get_logger().info('Stop goal accepted, waiting for result...')
-        self._get_result_future = goal_handle.get_result_async()
-        self._get_result_future.add_done_callback(self.stop_result_callback)
-
-    def stop_result_callback(self, future):
-        result = future.result().result
-        self.get_logger().info(f'Stop result received. Stopped: {result.stopped}')
-        self._goal_in_progress = False
-    
-    def stop_feedback_callback(self, feedback_msg):
-        self.get_logger().info(f'Stop feedback received: {feedback_msg}')
-    
     def stop_serv_tts(self):
         request = Stop.Request()
         future = self._stop_srv_client.call_async(request)
@@ -115,13 +83,10 @@ class STTTester(Node):
     def key_input(self, key):
         try:
             if key.char == 's' and self._goal_in_progress:
-                # self.send_stop_goal()
                 self.get_logger().info("Pressed stop. Sending service request...")
                 self.stop_serv_tts()
                 self.charArray = []
                 self.charMsg = ''
-            # elif key.char == 's' and not self._goal_in_progess:
-            #     self.get_logger().info("Did not recognize any TTS to stop.")
             elif not self._goal_in_progress:
                 if hasattr(key, 'char') and key.char is not None:
                     self.charArray.append(key.char)
@@ -138,7 +103,6 @@ class STTTester(Node):
                     self.send_tts_goal(self.charMsg) 
                     self.charArray = []
                     self.charMsg = ''
-                    # as of now, if you press enter multiple times it'll try to send multiple i think?
                 elif key == keyboard.Key.backspace:
                     if len(self.charArray) > 0:
                         self.charArray.pop()
