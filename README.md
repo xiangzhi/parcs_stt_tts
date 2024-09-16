@@ -49,9 +49,24 @@ $ ros2 launch parcs_tts parcs_tts.launch.py
 
 Text parameters are lower case unless expressed otherwise. 
 
+It is recommended to run each node in separate terminals rather than the launch files if you'd like to see user instructions more clearly. 
+
+Speech to text:
+```shell
+$ ros2 run parcs_stt parcs_stt
+$ ros2 run parcs_stt stt_tester
+```
+
+Text to speech:
+
+```shell
+$ ros2 run parcs_tts parcs_tts
+$ ros2 run parcs_tts tts_tester
+```
+
 ---
 
-To run the nodes regularly, use the following:
+To run the nodes, use the following:
 
 Speech to text:
 ```shell
