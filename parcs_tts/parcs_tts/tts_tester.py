@@ -3,6 +3,7 @@ from rclpy.node import Node
 from rclpy.action import ActionClient
 from parcs_stt_tts_msgs.action import TTS
 from parcs_stt_tts_msgs.action import StopTTS
+from parcs_stt_tts_msgs.srv import Stop
 from pynput import keyboard
 
 # uncomment if you'd like to use the keyboard module instead of pynput
@@ -19,6 +20,12 @@ class STTTester(Node):
         self._tts_action_client = ActionClient(self, TTS, 'tts')
         self._stop_action_client = ActionClient(self, StopTTS, 'stop_tts')
         self._goal_in_progress = False
+
+        self._stop_srv_client = self.create_client(Stop, 'stop')
+
+        while not self._stop_srv_client.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('Waiting for stop service to become available...')
+        self.get_logger().info("Stop service established!")
 
         self.charArray = [] # the empty character array to build
         self.charMsg = '' # the total string
@@ -91,11 +98,26 @@ class STTTester(Node):
     def stop_feedback_callback(self, feedback_msg):
         self.get_logger().info(f'Stop feedback received: {feedback_msg}')
     
+    def stop_serv_tts(self):
+        request = Stop.Request()
+        future = self._stop_srv_client.call_async(request)
+
+        future.add_done_callback(self.stop_serv_resp)
+    
+    def stop_serv_resp(self, future):
+        try:
+            response = future.result().result
+            self.get_logger().info(f"Stop service response received. Success: {response.success}")
+        except Exception as e:
+            self.get_logger().error(f"Stop service call failed: {e}")
+
     '''Handles key presses to send goals'''
     def key_input(self, key):
         try:
             if key.char == 's' and self._goal_in_progress:
-                self.send_stop_goal()
+                # self.send_stop_goal()
+                self.get_logger().info("Pressed stop. Sending service request...")
+                self.stop_serv_tts()
                 self.charArray = []
                 self.charMsg = ''
             # elif key.char == 's' and not self._goal_in_progess:

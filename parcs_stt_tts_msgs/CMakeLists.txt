@@ -7,6 +7,7 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
@@ -29,6 +30,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/Recalibrate.action"
   "action/TTS.action"
   "action/StopTTS.action"
+  "srv/Stop.srv"
   DEPENDENCIES builtin_interfaces
 )
 

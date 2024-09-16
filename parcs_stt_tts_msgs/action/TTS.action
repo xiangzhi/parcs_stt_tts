@@ -4,6 +4,6 @@ string tts # the string to be read out
 ---
 
 # Result
-string msg # the message that was spoken
+string msg # the message that was spoken, empty string if stopped
 
 ---
