@@ -1,9 +1,10 @@
+from pynput import keyboard
+
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from parcs_stt_tts_msgs.action import TTS
 from parcs_stt_tts_msgs.srv import Stop
-from pynput import keyboard
 
 # uncomment if you'd like to use the keyboard module instead of pynput
 # import keyboard

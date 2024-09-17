@@ -1,9 +1,10 @@
+from pynput import keyboard
+
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from parcs_stt_tts_msgs.action import Listen
 from parcs_stt_tts_msgs.action import Recalibrate
-from pynput import keyboard
 
 # uncomment if you'd like to use the keyboard module instead of pynput
 # import keyboard
@@ -14,7 +15,8 @@ class STTTester(Node):
 
     def __init__(self):
         super().__init__('stt_tester')
-        self.get_logger().info('Started testing node. Please type "l" to start recording or "r" to recalibrate for background noise.')
+        self.get_logger().info('STT testing node ready. Type "l" to start recording or "r" to recalibrate for background noise.\n--------------------------------------------')
+    
 
         self._listen_action_client = ActionClient(self, Listen, 'listen')
         self._recalibrate_action_client = ActionClient(self, Recalibrate, 'recalibrate')

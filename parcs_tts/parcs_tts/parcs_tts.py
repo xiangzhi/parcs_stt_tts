@@ -1,26 +1,22 @@
-import asyncio
+import os 
+import time 
 import signal
 import subprocess
 import threading
+
+import openai
+import pyaudio
+
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String 
-import sounddevice as sd
-from pydub import AudioSegment
-import numpy as np 
-import tempfile
-import openai
-import os 
-import pyaudio
-import time 
-from rclpy.action import ActionServer, GoalResponse, CancelResponse
-from parcs_stt_tts_msgs.action import TTS
-from parcs_stt_tts_msgs.srv import Stop
-from concurrent.futures import ThreadPoolExecutor
-from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.action import ActionServer
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
+from std_msgs.msg import String 
 from action_msgs.msg import GoalStatus
+
+from parcs_stt_tts_msgs.action import TTS
+from parcs_stt_tts_msgs.srv import Stop
 
 class ParcsTTS(Node):
 
@@ -156,31 +152,32 @@ class ParcsTTS(Node):
     
     '''aborts/kills all text to speech processses'''
     def handle_abort(self):
-        if not self.stop_flag: 
-            if self.tts_goal:
-                if (self.tts_goal.status == GoalStatus.STATUS_EXECUTING):
-                    # kills tts if handled in a subprocess
-                    if self.tts_process is not None: 
-                        os.killpg(os.getpgid(self.tts_process.pid), signal.SIGTERM)
-                        self.get_logger().info("Killed process.")
-                        self.tts_process = None
-
-                    self.abort_resp.success = True 
-                    self.stop_flag = True
-
-                    self.get_logger().info("TTS stopped by service.")
-                    if self.tts_goal.status not in [GoalStatus.STATUS_SUCCEEDED, GoalStatus.STATUS_ABORTED]:
-                        self.tts_goal.abort()
-                else:
-                    self.abort_resp.success = False
-                    self.get_logger().info("TTS not executing.")
-            else:
-                self.abort_resp.success = False
-                self.get_logger().info("No TTS to stop.")
-        else:
+        if self.stop_flag: 
             self.abort_resp.success = False
             self.get_logger().info("Already attempted to stop. Ignoring request.")
-    
+            return
+        
+        if not self.tts_goal: 
+            self.abort_resp.success = False
+            self.get_logger().info("No TTS to stop.")
+            return
+        
+        if self.tts_goal.status == GoalStatus.STATUS_EXECUTING:
+            # kills tts if handled in a subprocess
+            if self.tts_process is not None: 
+                os.killpg(os.getpgid(self.tts_process.pid), signal.SIGTERM)
+                self.get_logger().info("Killed process.")
+                self.tts_process = None
+
+            self.abort_resp.success = True 
+            self.stop_flag = True
+
+            self.get_logger().info("TTS stopped by service.")
+            if self.tts_goal.status not in [GoalStatus.STATUS_SUCCEEDED, GoalStatus.STATUS_ABORTED]:
+                self.tts_goal.abort()
+        else:
+            self.abort_resp.success = False
+            self.get_logger().info("TTS not currently executing.")
 
     '''produces speech given the message and interpreter, plays it from speakers, and publishes the produced message as a String to the topic'''
     def produce_speech(self, msg):
@@ -201,7 +198,7 @@ class ParcsTTS(Node):
 
         return msg
     
-    '''generates a response'''
+    '''generates a response via AI if parameters allow for it'''
     def generate_response(self, query):
         
         if self.tts_interpreter_param == 'openai':
@@ -255,14 +252,13 @@ class ParcsTTS(Node):
     '''monitors the process, sleeping while TTS is not stopped'''
     def monitor_process(self):
         try:
-            if self.tts_process:
-                while not self.stop_flag and self.tts_process.poll() is None:
+            while not self.stop_flag:
+                if self.tts_process and self.tts_process.poll() is None:
                     time.sleep(0.1)
-            else:
-                while not self.stop_flag:
-                    time.sleep(0.1)
+                else:
+                    break
         except Exception as e:
-            self.get_logger().info(f"Exception while waiting for process: {e}")
+            self.get_logger().info(f"Exception while monitoring process: {e}")
     
 def main(args=None):
     try: 

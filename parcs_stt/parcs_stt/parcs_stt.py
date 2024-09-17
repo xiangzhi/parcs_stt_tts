@@ -1,13 +1,16 @@
-import rclpy
-from rclpy.node import Node
-from std_msgs.msg import String 
+import os 
+import tempfile
+
+import openai
+import numpy as np 
 import sounddevice as sd
 from pydub import AudioSegment
-import numpy as np 
-import tempfile
-import openai
-import os 
+
+import rclpy
+from rclpy.node import Node
 from rclpy.action import ActionServer
+from std_msgs.msg import String 
+
 from parcs_stt_tts_msgs.action import Listen
 from parcs_stt_tts_msgs.action import Recalibrate
 
@@ -41,7 +44,6 @@ class ParcsSTT(Node):
         self.declare_parameter("interpreter", stt_interpreter_param)
 
         self.threshold_param = self.get_parameter("threshold").get_parameter_value().integer_value
-        
         self.stt_interpreter_param = self.get_parameter("interpreter").get_parameter_value().string_value
 
         self.get_logger().info(f"Threshold: {self.threshold_param}")
@@ -51,6 +53,8 @@ class ParcsSTT(Node):
             openai.api_key= os.getenv("OPENAI_API_KEY") #get api key as environmental variable
 
         self.set_background_noise()
+        self.get_logger().info(f"STT node ready.\n--------------------------------------------")
+
     
     '''listen action server callback'''
     def listen_callback(self, goal_handle):
