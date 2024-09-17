@@ -47,9 +47,11 @@ Text to speech demo launch:
 $ ros2 launch parcs_tts parcs_tts.launch.py
 ```
 
-Text parameters are lower case unless expressed otherwise. 
+Text parameters are lower case unless expressed otherwise.
 
-It is recommended to run each node in separate terminals rather than the launch files if you'd like to see user instructions more clearly. 
+---
+
+It is recommended to run each node in separate terminals rather than the launch files if you'd like to see user instructions more clearly. To do so, use the following:
 
 Speech to text:
 ```shell
@@ -62,20 +64,6 @@ Text to speech:
 ```shell
 $ ros2 run parcs_tts parcs_tts
 $ ros2 run parcs_tts tts_tester
-```
-
----
-
-To run the nodes, use the following:
-
-Speech to text:
-```shell
-$ ros2 run parcs_stt parcs_stt 
-```
-
-Text to speech:
-```shell
-$ ros2 run parcs_tts parcs_tts
 ```
 
 ## Setting an API Key
