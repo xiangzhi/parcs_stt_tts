@@ -36,17 +36,19 @@ class ParcsSTT(Node):
         )
 
         # parameters
-        threshold_param = -2
+        # a value to be added onto the calibrated threshold value
+        # lower threshold values are less sensitive to noise
+        threshold_param = -17.0 #was -2.0 originally
         # mic_param to be made later
         stt_interpreter_param = 'openai'
 
         self.declare_parameter("threshold", threshold_param)
         self.declare_parameter("interpreter", stt_interpreter_param)
 
-        self.threshold_param = self.get_parameter("threshold").get_parameter_value().integer_value
+        self.threshold_param = self.get_parameter("threshold").get_parameter_value().double_value
         self.stt_interpreter_param = self.get_parameter("interpreter").get_parameter_value().string_value
 
-        self.get_logger().info(f"Threshold: {self.threshold_param}")
+        self.get_logger().info(f"Change in threshold after calibration: {self.threshold_param}")
         self.get_logger().info(f"STT Interpreter: {self.stt_interpreter_param}")
 
         if self.stt_interpreter_param == 'openai':
@@ -89,7 +91,8 @@ class ParcsSTT(Node):
     def set_background_noise(self):
         self.background_noise_dbfs = self.measure_background_noise()
         self.silence_threshold = self.background_noise_dbfs + self.threshold_param 
-        self.get_logger().info(f"Silence threshold (dBFS): {self.silence_threshold}")
+        self.get_logger().info(f"Base silence threshold (dBFS): {self.background_noise_dbfs}")
+        self.get_logger().info(f"Silence threshold with added parameter (dBFS): {self.silence_threshold}")
 
     '''measure the background noise to adjust the silence threshold'''
     def measure_background_noise(self, duration=3, samplerate=44100):
