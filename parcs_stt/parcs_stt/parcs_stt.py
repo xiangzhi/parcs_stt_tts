@@ -98,6 +98,8 @@ class ParcsSTT(Node):
 
         self.set_background_noise()
 
+        self.get_logger().info(f"Pause/chunk duration: {self.pause_duration_param}")
+
         # handle STT interpreter
         self.get_logger().info(f"STT Interpreter: {self.stt_interpreter_param}")
 

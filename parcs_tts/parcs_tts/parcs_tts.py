@@ -80,7 +80,8 @@ class ParcsTTS(Node):
 
         # handle TTS interpreter
         self.get_logger().info(f"TTS interpreter: {self.tts_interpreter_param}")
-        
+        self.get_logger().info(f"Generating response: {self.gen_response_param}")
+
         if self.tts_interpreter_param == 'openai':
             openai.api_key= os.getenv("OPENAI_API_KEY") #get api key as environmental variable
             self.speaker = "alloy"
