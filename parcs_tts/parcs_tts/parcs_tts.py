@@ -6,6 +6,9 @@ import threading
 
 import openai
 import pyaudio
+import sounddevice as sd
+import numpy as np
+from scipy.signal import resample
 
 import rclpy
 from rclpy.node import Node
@@ -21,26 +24,27 @@ from parcs_stt_tts_msgs.srv import Stop
 class ParcsTTS(Node):
 
     def __init__(self):
+        '''
+        actions
+        -------
+        'tts' | initiates the text to speech with the goal message
+
+        services
+        --------
+        'stop' | stops the text to speech immediately when called
+
+        parameters
+        ----------
+        'personality' | the personality of the AI if a response is being automatically generated | default: 'you like humans most of the time and are a helpful robot'
+        'interpreter' | what is used to make the text into speech | default: 'festival'
+            Options (case sensitive): 'openai', 'festival'
+        'gen_response' | whether an AI response will be generated with the given goal message as a query | default: 'false'
+            Options (case sensitive): 'true','false'
+        'speaker' | the speaker that tts is played from, default if it cannot be found | default: 'default'
+
+        '''
         super().__init__('parcs_tts')
 
-        # parameters
-        # speaker parameters to be made later
-        personality_param = 'you like humans most of the time and are a helpful robot'
-        tts_interpreter_param = 'festival' # 'festival' or 'openai', case sensitive
-        gen_response_param = 'false' # must be 'true' or 'false', case sensitive
-
-        self.declare_parameter("personality", personality_param)
-        self.declare_parameter("interpreter", tts_interpreter_param)
-        self.declare_parameter("gen_response", gen_response_param)
-
-        self.personality_param = self.get_parameter("personality").get_parameter_value().string_value
-        self.tts_interpreter_param = self.get_parameter("interpreter").get_parameter_value().string_value
-        self.gen_response_param = self.get_parameter("gen_response").get_parameter_value().string_value
-
-        if self.tts_interpreter_param == 'openai':
-            openai.api_key= os.getenv("OPENAI_API_KEY") #get api key as environmental variable
-            self.speaker = "alloy"
-        
         # action and service server initializing
         self.tts_callback_group = MutuallyExclusiveCallbackGroup() # handles one callback at a time
         self.stop_callback_group = MutuallyExclusiveCallbackGroup()
@@ -58,14 +62,67 @@ class ParcsTTS(Node):
                                               self.abort_goal_req,
                                               callback_group=self.stop_callback_group)
         
+        # parameters
+        tts_interpreter_param = 'festival' # 'festival' or 'openai', case sensitive
+        speaker_param = 'default'
+        gen_response_param = 'false' # must be 'true' or 'false', case sensitive
+        personality_param = 'you like humans most of the time and are a helpful robot'
+
+        self.declare_parameter("interpreter", tts_interpreter_param)
+        self.declare_parameter("speaker", speaker_param)
+        self.declare_parameter("gen_response", gen_response_param)
+        self.declare_parameter("personality", personality_param)
+
+        self.tts_interpreter_param = self.get_parameter("interpreter").get_parameter_value().string_value
+        self.speaker_param = self.get_parameter("speaker").get_parameter_value().string_value
+        self.gen_response_param = self.get_parameter("gen_response").get_parameter_value().string_value
+        self.personality_param = self.get_parameter("personality").get_parameter_value().string_value
+
+        # handle TTS interpreter
+        self.get_logger().info(f"TTS interpreter: {self.tts_interpreter_param}")
+        
+        if self.tts_interpreter_param == 'openai':
+            openai.api_key= os.getenv("OPENAI_API_KEY") #get api key as environmental variable
+            self.speaker = "alloy"
+
+        # adjust speaker settings
+        p = pyaudio.PyAudio()
+        if self.speaker_param == 'default':
+            self.get_logger().info(f"Using default speaker.")
+            self.speaker_index = p.get_default_output_device_info()['index']
+            speaker_device = p.get_default_output_device_info()
+        else:
+            self.speaker_index = self.__get_speaker_index(self.speaker_param)
+            
+            # handle the default case
+            if self.speaker_index is None:
+                self.speaker_index = p.get_default_output_device_info()['index']
+                speaker_device = p.get_default_output_device_info()
+            else:
+                speaker_device = p.get_device_info_by_index(self.speaker_index) 
+
+        self.sample_rate = int(speaker_device['defaultSampleRate'])
+        self.get_logger().info(f"Speaker sample rate: {self.sample_rate}")
+    
         # variables
         self.stop_flag = False
         self.tts_process = None # for festival or other interpreters that would use subprocess.Popen
         self.tts_goal = None
         self.prod_speech_result = None
 
-        self.get_logger().info(f"TTS interpreter: {self.tts_interpreter_param}")
         self.get_logger().info(f"TTS node ready.\n--------------------------------------------")
+    
+    '''gets the speaker index; None if not found'''
+    def __get_speaker_index(self, speaker_name):
+        p = pyaudio.PyAudio()
+        speakers = p.get_device_count() # print this to see device names
+        for i in range(speakers):
+            speaker = p.get_device_info_by_index(i)
+            if speaker['maxOutputChannels'] > 0 and speaker_name in speaker['name']:
+                self.get_logger().info(f"Using {speaker_name} at index {i}.")
+                return i
+        self.get_logger().info(f"Couldn't find speaker {speaker_name}, using default.")
+        return None  # return none if no speaker found
 
     '''tts action server callback'''
     def tts_callback(self, goal_handle):
@@ -219,8 +276,15 @@ class ParcsTTS(Node):
     
     '''uses openai to process the text and say it'''
     def text_to_speech_openai(self, text):
+        p = pyaudio.PyAudio()
 
-        player_stream = pyaudio.PyAudio().open(format=pyaudio.paInt16, channels=1, rate=24000, output=True) 
+        player_stream = p.open(
+            format=pyaudio.paInt16, 
+            channels=1, 
+            rate=self.sample_rate, 
+            output=True,
+            output_device_index=self.speaker_index
+        )  #rate=24000
 
         start_time = time.time() 
 
@@ -234,9 +298,31 @@ class ParcsTTS(Node):
             for chunk in response.iter_bytes(chunk_size=1024): 
                 if self.stop_flag: # handles stopping
                     break
-                player_stream.write(chunk) 
+                if self.sample_rate == 24000:
+                    player_stream.write(chunk)
+                else:
+                    # resampling if necessary
+                    resample_factor = self.sample_rate / 24000
+
+                    # converting bytes into numpy array
+                    audio_data_np = np.frombuffer(chunk, dtype=np.int16)
+
+                    # resampling the data
+                    num_samples = int(len(audio_data_np) * resample_factor)
+                    resampled_data = resample(audio_data_np, num_samples)
+
+                    # converting the numpy array back to bytes
+                    output_data = resampled_data.astype(np.int16).tobytes()
+
+                    # writing resampled data to audio player stream
+                    player_stream.write(output_data)
 
         print(f"Done in {int((time.time() - start_time) * 1000)}ms.")
+
+        # stop stream after finishing
+        player_stream.stop_stream()
+        player_stream.close()
+        p.terminate()
 
     '''uses festival to process the text and say it'''
     def text_to_speech_festival(self, text):

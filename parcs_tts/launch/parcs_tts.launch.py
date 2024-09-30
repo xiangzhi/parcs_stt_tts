@@ -13,8 +13,8 @@ def generate_launch_description():    # a launcher for text to speech and its te
             output='screen',
             parameters=[{"personality": "you are a helpful robot"}, # the personality if generating responses
                         {"interpreter": "openai"}, # 'festival' or 'openai', case sensitive 
-                        {"gen_response": "false"} # whether you want to generate responses or not: 'true' or 'false', case sensitive
-                        ] 
+                        {"gen_response": "false"}, # whether you want to generate responses or not: 'true' or 'false', case sensitive
+                        {"speaker": "default"}] 
         ),
         Node(
             package='parcs_tts',

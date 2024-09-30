@@ -5,6 +5,8 @@ import openai
 import numpy as np 
 import sounddevice as sd
 from pydub import AudioSegment
+import noisereduce as nr
+import matplotlib.pyplot as plt
 
 import rclpy
 from rclpy.node import Node
@@ -17,10 +19,32 @@ from parcs_stt_tts_msgs.action import Recalibrate
 class ParcsSTT(Node):
 
     def __init__(self):
+        '''
+        publisher 
+        ---------
+        '/speech_to_text' | produced STT result is published to this topic
+        
+        actions
+        -------
+        'listen' | listens once and returns speech as text after a pause period 
+        'recalibrate' | recalibrates the node for background noise
+
+        parameters
+        ----------
+        'relative_threshold' | a value that is added to the silence treshold value after calibration | default: 1.0 (was -2.0)
+        'set_threshold' | the silence threshold as a specified value; 0.0 means auto-calibration is used | default: 0.0
+        'interpreter' | the recognizer for speech | default: 'openai'
+        'pause_duration' | the amount of time of a pause in seconds to begin processing audio; the audio chunk length | default: 2.0
+        'microphone' | the microphone used to calibrate and record audio, default if it cannot be found | default: 'default'
+
+        note for thresholds: louder sounds yield a higher dBFS value; lower thresholds are less sensitive to noise
+        '''
         super().__init__('parcs_stt')
 
+        # handle publisher
         self._publisher = self.create_publisher(String, "/speech_to_text", 10)
 
+        # create action servers
         self._stt_action_server = ActionServer(
             self,
             Listen,
@@ -35,34 +59,62 @@ class ParcsSTT(Node):
             self.recalibrate_callback
         )
 
-        # parameters
-        # a value to be added onto the calibrated threshold value
-        # lower threshold values are less sensitive to noise
-        rel_threshold_param = -17.0 #was -2.0 originally
+        # set parameters
+        rel_threshold_param = 1.0 
         set_threshold_param = 0.0
-        # mic_param to be made later
         stt_interpreter_param = 'openai'
+        pause_duration_param = 2.0
+        mic_param = 'default'
 
         self.declare_parameter("relative_threshold", rel_threshold_param)
         self.declare_parameter("set_threshold", set_threshold_param)
         self.declare_parameter("interpreter", stt_interpreter_param)
+        self.declare_parameter("pause_duration", pause_duration_param)
+        self.declare_parameter("microphone", mic_param)
 
         self.set_threshold_param = self.get_parameter("set_threshold").get_parameter_value().double_value
         self.rel_threshold_param = self.get_parameter("relative_threshold").get_parameter_value().double_value
         self.stt_interpreter_param = self.get_parameter("interpreter").get_parameter_value().string_value
+        self.pause_duration_param = self.get_parameter("pause_duration").get_parameter_value().double_value
+        self.mic_param = self.get_parameter("microphone").get_parameter_value().string_value
 
+        # adjust microphone settings
+        if self.mic_param == 'default':
+            self.get_logger().info(f"Using default microphone.")
+            self.mic_index = None
+            mic_device = sd.query_devices(sd.default.device[0], 'input')  
+        else:
+            self.mic_index = self.__get_mic_index(self.mic_param)
+            mic_device = sd.query_devices(self.mic_index, 'input') 
+
+        self.sample_rate = int(mic_device['default_samplerate'])
+        self.get_logger().info(f"Microphone sample rate: {self.sample_rate}")
+
+        # adjust threshold
         if self.set_threshold_param != 0.0:
             self.get_logger().info(f"Threshold set to {self.set_threshold_param}. Not calibrating.")
         else:
             self.get_logger().info(f"Change in threshold after calibration: {self.rel_threshold_param}")
+
+        self.set_background_noise()
+
+        # handle STT interpreter
         self.get_logger().info(f"STT Interpreter: {self.stt_interpreter_param}")
 
         if self.stt_interpreter_param == 'openai':
             openai.api_key= os.getenv("OPENAI_API_KEY") #get api key as environmental variable
 
-        self.set_background_noise()
         self.get_logger().info(f"STT node ready.\n--------------------------------------------")
-
+    
+    '''gets the microphone index; None if default'''
+    def __get_mic_index(self, mic_name):
+        mics = sd.query_devices() # print this to see device names
+        for i, mic in enumerate(mics):
+            if mic['max_input_channels'] > 0 and mic_name in mic['name']:
+                self.get_logger().info(f"Using {mic_name} at index {i}.")
+                return i
+        self.get_logger().info(f"Couldn't find microphone {mic_name}, using default.")
+        return None  # return none if no microphone found
     
     '''listen action server callback'''
     def listen_callback(self, goal_handle):
@@ -111,12 +163,18 @@ class ParcsSTT(Node):
     '''measure the background noise to adjust the silence threshold'''
     def measure_background_noise(self, duration=3, samplerate=44100):
         self.get_logger().info("Calibrating for background noise...")
-        audio_chunk = sd.rec(int(duration * samplerate), samplerate=samplerate, channels=1, dtype='int16')
+        audio_chunk = sd.rec(
+            int(duration * self.sample_rate), 
+            samplerate=self.sample_rate, 
+            channels=1, 
+            dtype='int16',
+            device=self.mic_index
+        )
         sd.wait()
 
         audio_segment = AudioSegment(
             audio_chunk.tobytes(),
-            frame_rate=samplerate,
+            frame_rate=self.sample_rate,
             sample_width=audio_chunk.dtype.itemsize,
             channels=1
         )
@@ -126,44 +184,44 @@ class ParcsSTT(Node):
         return dBFS_value
     
     '''detects if there is a pause in audio'''
-    def detect_audio_silence(self, audio_segment : AudioSegment, pause_duration, threshold):
-        min_silence_len = 1000*pause_duration # pause_duration in seconds
-    
-        samples = np.array(audio_segment.get_array_of_samples())
-        rms_value = np.sqrt(np.mean(np.square(samples)))
+    def detect_audio_silence(self, audio_segment : AudioSegment, threshold):
 
-        # converting rms to dbfs
-        rms_dBFS = 20 * np.log10(rms_value / 32768.0)
-        # uncomment to test for RMS and dBFS threshold values
-        # self.get_logger().info(f"RMS Value: {rms_value}")
-        # self.get_logger().info(f"RMS to dBFS Value: {rms_dBFS}")
-        return rms_dBFS < threshold
-    
+        audio_dBFS = audio_segment.dBFS
+        # uncomment to test for dBFS value
+        self.get_logger().info(f"Measured segment's dBFS: {audio_dBFS}")
+        return audio_dBFS > threshold
+
     '''records the audio until silence is detected and returns the audio file'''
-    def record_audio(self, threshold=-40.0, chunk_duration=2, pause_duration=2, samplerate=44100): # chunk duration was 1
+    def record_audio(self, threshold, samplerate=44100): # chunk duration was 1
         self.get_logger().info('Recording...')
         audio_chunks = []
         pause_counter = 0
 
         while True:
             # record a chunk of audio
-            audio_chunk = sd.rec(int(chunk_duration * samplerate), samplerate=samplerate, channels=1, dtype='int16')
+            audio_chunk = sd.rec(
+                int(self.pause_duration_param * self.sample_rate), 
+                samplerate=self.sample_rate, 
+                channels=1, 
+                dtype='int16',
+                device=self.mic_index
+            )
             # wait until audio is done recording
             sd.wait() 
 
             # pause detection for audio to end
             audio_segment = AudioSegment(
                 audio_chunk.tobytes(),
-                frame_rate=samplerate,
+                frame_rate=self.sample_rate,
                 sample_width=audio_chunk.dtype.itemsize,
                 channels=1
             )
 
-            audio_chunks.append(audio_segment)
+            audio_chunks.append(audio_segment) # changed from audio_segment
             self.get_logger().info("No pause detected. Adding audio segment...")
 
             # detects any silence in the audio segment
-            silence_detected = self.detect_audio_silence(audio_segment, pause_duration, threshold)
+            silence_detected = self.detect_audio_silence(audio_segment, threshold)
             if silence_detected:
                 pause_counter += 1
             else:
@@ -188,8 +246,10 @@ class ParcsSTT(Node):
             with open(audio_file, "rb") as file:
                 response = openai.audio.transcriptions.create(
                     model='whisper-1',
-                    file=file
+                    file=file,
+                    language='en'
                 )
+
         else:
             self.get_logger().error("Not a valid STT interpreter (i.e. openai)")
 
