@@ -31,7 +31,7 @@ class ParcsSTT(Node):
 
         parameters
         ----------
-        'relative_threshold' | a value that is added to the silence treshold value after calibration | default: 1.0 (was -2.0)
+        'relative_threshold' | a value that is added to the silence threshold value after calibration | default: 0.5
         'set_threshold' | the silence threshold as a specified value; 0.0 means auto-calibration is used | default: 0.0
         'interpreter' | the recognizer for speech | default: 'openai'
         'pause_duration' | the amount of time of a pause in seconds to begin processing audio; the audio chunk length | default: 2.0
@@ -60,7 +60,7 @@ class ParcsSTT(Node):
         )
 
         # set parameters
-        rel_threshold_param = 1.0 
+        rel_threshold_param = 0.5 
         set_threshold_param = 0.0
         stt_interpreter_param = 'openai'
         pause_duration_param = 2.0
@@ -105,6 +105,9 @@ class ParcsSTT(Node):
 
         if self.stt_interpreter_param == 'openai':
             openai.api_key= os.getenv("OPENAI_API_KEY") #get api key as environmental variable
+
+        # other variables
+        self.pauses_detected = 0
 
         self.get_logger().info(f"STT node ready.\n--------------------------------------------")
     
@@ -186,23 +189,31 @@ class ParcsSTT(Node):
         return dBFS_value
     
     '''detects if there is a pause in audio'''
-    def detect_audio_silence(self, audio_segment : AudioSegment, threshold):
-
-        audio_dBFS = audio_segment.dBFS
-        # uncomment to test for dBFS value
-        self.get_logger().info(f"Measured segment's dBFS: {audio_dBFS}")
-        return audio_dBFS > threshold
+    def detect_audio_silence(self, cur_dbfs, prev_dbfs, started_speaking):
+        # good for starting speaking, not good for running because it won't have significant changes
+        if not started_speaking:
+            if abs(cur_dbfs - prev_dbfs) >= 5.0:
+                started_speaking = True
+                return False, started_speaking # no silence
+            else:
+                return True, started_speaking  # silence
+        else:
+            if abs(cur_dbfs - self.silence_threshold) >= 2.0: # tentative value for the dbfs to be between
+                return False, started_speaking # no silence
+            else: 
+                return True, started_speaking # silence
 
     '''records the audio until silence is detected and returns the audio file'''
-    def record_audio(self, threshold, samplerate=44100): # chunk duration was 1
+    def record_audio(self, threshold, samplerate=44100, chunk_duration=1): # chunk duration was 1
         self.get_logger().info('Recording...')
         audio_chunks = []
-        pause_counter = 0
+        started_speaking = False
+        prev_dbfs = threshold
 
         while True:
             # record a chunk of audio
             audio_chunk = sd.rec(
-                int(self.pause_duration_param * self.sample_rate), 
+                int(chunk_duration * self.sample_rate), 
                 samplerate=self.sample_rate, 
                 channels=1, 
                 dtype='int16',
@@ -219,19 +230,28 @@ class ParcsSTT(Node):
                 channels=1
             )
 
-            audio_chunks.append(audio_segment) # changed from audio_segment
-            self.get_logger().info("No pause detected. Adding audio segment...")
+            current_dbfs = audio_segment.dBFS
+            
+            # uncomment to check dbfs values for debugging
+            # self.get_logger().info(f"Measured segment's dBFS: {current_dbfs}")
 
             # detects any silence in the audio segment
-            silence_detected = self.detect_audio_silence(audio_segment, threshold)
-            if silence_detected:
-                pause_counter += 1
+            silence_detected, started_speaking = self.detect_audio_silence(current_dbfs, prev_dbfs, started_speaking)
+
+            if silence_detected and started_speaking:
+                self.pauses_detected += 1
+                self.get_logger().info(f"Pause detected. Current pause counter: {self.pauses_detected}")
             else:
-                pause_counter = 0
+                self.get_logger().info("No pause detected. Adding audio segment...")
+                prev_dbfs = current_dbfs
+                self.pauses_detected = 0
             
-            # stops recording if pause is detected
-            if pause_counter > 0:
-                self.get_logger().info("Pause detected. Stopping detection...")
+            audio_chunks.append(audio_segment) 
+
+            # stops recording if pause is detected 
+            if self.pauses_detected >= self.pause_duration_param:
+                self.get_logger().info("Reached pause duration. Stopping detection...")
+                self.pauses_detected = 0
                 break
 
         # combines the audio chunks until the silence threshold was met

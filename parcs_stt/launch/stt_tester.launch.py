@@ -9,7 +9,7 @@ def generate_launch_description():    # a launcher for the chatbot's input and o
             executable='parcs_stt',
             name='parcs_stt',
             output='screen',
-            parameters=[{"relative_threshold": 1.0}, # relative threshold depending on calibration value, 0.5 works well for quiet areas
+            parameters=[{"relative_threshold": 0.5}, # relative threshold depending on calibration value, -0.5 works well for quiet areas
                         {"set_threshold": 0.0}, # set the threshold directly without calibration; 0.0 means it will use calibration
                         {"interpreter": 'openai'}, # can be “anthropic” or “openai”
                         {"pause_duration": 2.0}, # the amount of time of a pause in seconds to begin processing audio; the audio chunk length
