@@ -194,6 +194,7 @@ class ParcsSTT(Node):
         if not started_speaking:
             if abs(cur_dbfs - prev_dbfs) >= 5.0:
                 started_speaking = True
+                self.get_logger().info("Speech detected.")
                 return False, started_speaking # no silence
             else:
                 return True, started_speaking  # silence
@@ -242,7 +243,10 @@ class ParcsSTT(Node):
                 self.pauses_detected += 1
                 self.get_logger().info(f"Pause detected. Current pause counter: {self.pauses_detected}")
             else:
-                self.get_logger().info("No pause detected. Adding audio segment...")
+                if not started_speaking:
+                    self.get_logger().info("No speech detected. Adding audio segment...")
+                else:
+                    self.get_logger().info("No pause detected. Adding audio segment...")
                 prev_dbfs = current_dbfs
                 self.pauses_detected = 0
             
