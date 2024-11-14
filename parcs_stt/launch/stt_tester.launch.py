@@ -5,7 +5,6 @@ def generate_launch_description():    # a launcher for the chatbot's input and o
     return LaunchDescription([
         Node(
             package='parcs_stt',
-            namespace='stt',
             executable='parcs_stt',
             name='parcs_stt',
             output='screen',
@@ -18,7 +17,6 @@ def generate_launch_description():    # a launcher for the chatbot's input and o
         ),
         Node(
             package='parcs_stt',
-            namespace='stt',
             executable='stt_tester',
             name='stt_tester',
             output='screen',

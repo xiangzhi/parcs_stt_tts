@@ -5,10 +5,9 @@ def generate_launch_description():    # a launcher for the chatbot's input and o
     return LaunchDescription([
         Node(
             package='parcs_stt',
-            namespace='parcs_stt',
             executable='parcs_stt',
             name='parcs_stt',
             output='screen',
-            parameters=[{"threshold": 1.0}, {"interpreter": "openai"}] # can be “anthropic” or “openai”
+            parameters=[{"threshold": 5.0}, {"interpreter": "openai"}] # can be “anthropic” or “openai”
         )
     ])

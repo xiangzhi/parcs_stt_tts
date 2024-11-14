@@ -5,7 +5,6 @@ import openai
 import numpy as np 
 import sounddevice as sd
 from pydub import AudioSegment
-import noisereduce as nr
 import matplotlib.pyplot as plt
 
 import rclpy
@@ -188,8 +187,17 @@ class ParcsSTT(Node):
         self.get_logger().info(f"Background noise dBFS value: {dBFS_value}")
         return dBFS_value
     
+
+    def detect_audio_activity(self, cur_dbfs) -> bool:
+        self.get_logger().info(f"current dbfs:{cur_dbfs}: {cur_dbfs > self.silence_threshold}")
+
+        return cur_dbfs > self.silence_threshold
+
+
+
     '''detects if there is a pause in audio'''
     def detect_audio_silence(self, cur_dbfs, prev_dbfs, started_speaking):
+        self.get_logger().info(f"current dbfs:{cur_dbfs}")
         # good for starting speaking, not good for running because it won't have significant changes
         if not started_speaking:
             if abs(cur_dbfs - prev_dbfs) >= 5.0:
@@ -205,16 +213,19 @@ class ParcsSTT(Node):
                 return True, started_speaking # silence
 
     '''records the audio until silence is detected and returns the audio file'''
-    def record_audio(self, threshold, samplerate=44100, chunk_duration=1): # chunk duration was 1
+    def record_audio(self, threshold, samplerate=44100, chunk_duration=0.5): # chunk duration was 1
         self.get_logger().info('Recording...')
         audio_chunks = []
         started_speaking = False
         prev_dbfs = threshold
 
         while True:
+
+            diff_chunk_duration = chunk_duration * 2.5 if not started_speaking else chunk_duration
+
             # record a chunk of audio
             audio_chunk = sd.rec(
-                int(chunk_duration * self.sample_rate), 
+                int(diff_chunk_duration * self.sample_rate), 
                 samplerate=self.sample_rate, 
                 channels=1, 
                 dtype='int16',
@@ -237,26 +248,60 @@ class ParcsSTT(Node):
             # self.get_logger().info(f"Measured segment's dBFS: {current_dbfs}")
 
             # detects any silence in the audio segment
-            silence_detected, started_speaking = self.detect_audio_silence(current_dbfs, prev_dbfs, started_speaking)
+            # silence_detected, started_speaking = self.detect_audio_silence(current_dbfs, prev_dbfs, started_speaking)
 
-            if silence_detected and started_speaking:
-                self.pauses_detected += 1
-                self.get_logger().info(f"Pause detected. Current pause counter: {self.pauses_detected}")
-            else:
-                if not started_speaking:
-                    self.get_logger().info("No speech detected. Adding audio segment...")
+            # if started_speaking:
+            #     if silence_detected:
+            #         self.pauses_detected += 1
+            #         self.get_logger().info(f"Pause detected. Current pause counter: {self.pauses_detected}")
+            #     else:
+            #         self.get_logger().info("No pause detected. Adding audio segment and restart counter")
+            #         self.pauses_detected = 0
+            # else:
+            #     self.get_logger().info("No speech detected. Adding audio segment...")
+            #     prev_dbfs = current_dbfs
+
+            if started_speaking:
+                audio_chunks.append(audio_segment) 
+                # detect audio level
+                if self.detect_audio_activity(current_dbfs):
+                    self.get_logger().info("No pause detected.")
+                    # restart counter
+                    self.pauses_detected = 0
                 else:
-                    self.get_logger().info("No pause detected. Adding audio segment...")
-                prev_dbfs = current_dbfs
-                self.pauses_detected = 0
-            
-            audio_chunks.append(audio_segment) 
+                    self.get_logger().info("pause detected.")
+                    if self.pauses_detected >= self.pause_duration_param:
+                        self.get_logger().info("Reached pause duration. Stopping detection...")
+                        self.pauses_detected = 0
+                        break
+                    self.pauses_detected += 1
+            else:
+                if self.detect_audio_activity(current_dbfs):
+                    self.get_logger().info("speech detected. Adding audio segment...")
+                    started_speaking = True
+                    self.pauses_detected = 0
+                    audio_chunks.append(audio_segment) 
 
-            # stops recording if pause is detected 
-            if self.pauses_detected >= self.pause_duration_param:
-                self.get_logger().info("Reached pause duration. Stopping detection...")
-                self.pauses_detected = 0
-                break
+                
+            # OLD LOGIC
+            # if silence_detected and started_speaking:
+            #     self.pauses_detected += 1
+            #     self.get_logger().info(f"Pause detected. Current pause counter: {self.pauses_detected}")
+            # else:
+            #     if not started_speaking:
+            #         self.get_logger().info("No speech detected. Adding audio segment...")
+            #     else:
+            #         self.get_logger().info("No pause detected. Adding audio segment...")
+            #     prev_dbfs = current_dbfs
+            #     self.pauses_detected = 0
+            
+            # audio_chunks.append(audio_segment) 
+
+            # # stops recording if pause is detected 
+            # if self.pauses_detected >= self.pause_duration_param:
+            #     self.get_logger().info("Reached pause duration. Stopping detection...")
+            #     self.pauses_detected = 0
+            #     break
 
         # combines the audio chunks until the silence threshold was met
         combined_audio = sum(audio_chunks)
