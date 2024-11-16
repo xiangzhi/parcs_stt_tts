@@ -18,12 +18,7 @@ class STTTester(Node):
 
         self._tts_action_client = ActionClient(self, TTS, 'tts')
         self._goal_in_progress = False
-
-        self._stop_srv_client = self.create_client(Stop, 'stop')
-
-        while not self._stop_srv_client.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info('Waiting for stop service to become available...')
-        self.get_logger().info("Stop service established!")
+        self.goal_handle = None
 
         self.charArray = [] # the empty character array to build
         self.charMsg = '' # the total string
@@ -47,15 +42,15 @@ class STTTester(Node):
         self._send_goal_future.add_done_callback(self.tts_goal_response_callback)
 
     def tts_goal_response_callback(self, future):
-        goal_handle = future.result()
+        self.goal_handle = future.result()
 
-        if not goal_handle.accepted:
+        if not self.goal_handle.accepted:
             self.get_logger().info('TTS goal was rejected.')
             self._goal_in_progress = False
             return
         
         self.get_logger().info('TTS goal accepted, waiting for result...')
-        self._get_result_future = goal_handle.get_result_async()
+        self._get_result_future = self.goal_handle.get_result_async()
         self._get_result_future.add_done_callback(self.tts_result_callback)
 
     def tts_result_callback(self, future):
@@ -67,16 +62,15 @@ class STTTester(Node):
         self.get_logger().info(f'TTS feedback received: {feedback_msg}')
 
     '''STOP'''
-    def stop_serv_tts(self):
-        request = Stop.Request()
-        future = self._stop_srv_client.call_async(request)
+    def stop_tts(self):
 
-        future.add_done_callback(self.stop_serv_resp)
+        cancel_goal_future = self.goal_handle.cancel_goal_async()
+        cancel_goal_future.add_done_callback(self.stop_tts_resp)
     
-    def stop_serv_resp(self, future):
+    def stop_tts_resp(self, future):
         try:
             response = future.result()
-            self.get_logger().info(f"Stop service response received. Success: {response.success}")
+            self.get_logger().info(f"Stop response received: {response}")
         except Exception as e:
             self.get_logger().error(f"Stop service call failed: {e}")
 
@@ -84,8 +78,8 @@ class STTTester(Node):
     def key_input(self, key):
         try:
             if key.char == 's' and self._goal_in_progress:
-                self.get_logger().info("Pressed stop. Sending service request...")
-                self.stop_serv_tts()
+                self.get_logger().info("Pressed stop. Sending cancel goal request...")
+                self.stop_tts()
                 self.charArray = []
                 self.charMsg = ''
             elif not self._goal_in_progress:

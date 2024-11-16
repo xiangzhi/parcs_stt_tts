@@ -54,13 +54,9 @@ class ParcsTTS(Node):
             TTS,
             'tts',
             self.tts_callback,
-            callback_group=self.tts_callback_group
+            callback_group=self.tts_callback_group,
+            cancel_callback=self.abort_goal_req
         )
-
-        self._stop_serv = self.create_service(Stop, 
-                                              'stop', 
-                                              self.abort_goal_req,
-                                              callback_group=self.stop_callback_group)
         
         # parameters
         tts_interpreter_param = 'festival' # 'festival' or 'openai', case sensitive
@@ -110,6 +106,7 @@ class ParcsTTS(Node):
         self.tts_process = None # for festival or other interpreters that would use subprocess.Popen
         self.tts_goal = None
         self.prod_speech_result = None
+        self._goal_handle = None
 
         self.get_logger().info(f"TTS node ready.\n--------------------------------------------")
     
@@ -197,26 +194,24 @@ class ParcsTTS(Node):
                 time.sleep(1)
 
     '''handles the service call'''
-    def abort_goal_req(self, request, response):
+    def abort_goal_req(self, request):
+
         self.get_logger().info("Aborting TTS goal...")
-        self.abort_resp = Stop.Response()
 
         # handles killing/aborting asynchronously 
         stop_thread = threading.Thread(target=self.handle_abort)
         stop_thread.start()
         stop_thread.join()
 
-        return self.abort_resp 
+        return rclpy.actiopn.server.CancelResponse.ACCEPT
     
     '''aborts/kills all text to speech processses'''
     def handle_abort(self):
         if self.stop_flag: 
-            self.abort_resp.success = False
             self.get_logger().info("Already attempted to stop. Ignoring request.")
             return
         
         if not self.tts_goal: 
-            self.abort_resp.success = False
             self.get_logger().info("No TTS to stop.")
             return
         
@@ -227,14 +222,12 @@ class ParcsTTS(Node):
                 self.get_logger().info("Killed process.")
                 self.tts_process = None
 
-            self.abort_resp.success = True 
             self.stop_flag = True
 
             self.get_logger().info("TTS stopped by service.")
             if self.tts_goal.status not in [GoalStatus.STATUS_SUCCEEDED, GoalStatus.STATUS_ABORTED]:
                 self.tts_goal.abort()
         else:
-            self.abort_resp.success = False
             self.get_logger().info("TTS not currently executing.")
 
     '''produces speech given the message and interpreter, plays it from speakers, and publishes the produced message as a String to the topic'''

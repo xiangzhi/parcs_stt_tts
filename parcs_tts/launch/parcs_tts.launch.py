@@ -7,18 +7,16 @@ def generate_launch_description():    # a launcher for text to speech and its te
     return LaunchDescription([
         Node(
             package='parcs_tts',
-            namespace='parcs_tts',
             executable='parcs_tts',
             name='parcs_tts',
             output='screen',
             parameters=[{"personality": "you are a helpful robot"}, # the personality if generating responses
-                        {"interpreter": "openai"}, # 'festival' or 'openai', case sensitive 
+                        {"interpreter": "festival"}, # 'festival' or 'openai', case sensitive 
                         {"gen_response": "false"}, # whether you want to generate responses or not: 'true' or 'false', case sensitive
                         {"speaker": "default"}] 
         ),
         Node(
             package='parcs_tts',
-            namespace='parcs_tts',
             executable='tts_tester',
             name='tts_tester',
             output='screen',
